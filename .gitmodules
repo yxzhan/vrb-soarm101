@@ -1,3 +1,6 @@
 [submodule "bambot"]
 	path = bambot
 	url = https://github.com/yxzhan/bambot.git
+[submodule "mediapipe-samples-web"]
+	path = mediapipe-samples-web
+	url = https://github.com/google-ai-edge/mediapipe-samples-web.git
