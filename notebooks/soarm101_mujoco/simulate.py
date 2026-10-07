@@ -6,7 +6,9 @@ Uses official SOARM101 Mujoco model (SO101/scene.xml).
 import argparse
 import importlib.util
 import sys
+import time
 from pathlib import Path
+from typing import Optional
 
 import mujoco
 import mujoco.viewer
@@ -33,6 +35,9 @@ HOME_POSITION = {
     "wrist_roll": 0.0,
     "gripper": 0.785,
 }
+
+# How often the simulated joint state is published, seconds (~30 Hz).
+STATE_PUBLISH_PERIOD = 1 / 30
 
 
 def load_model() -> mujoco.MjModel:
@@ -68,7 +73,10 @@ def set_joint_positions(data: mujoco.MjData, joint_pos: dict) -> None:
 
 
 def run_simulation(
-    model: mujoco.MjModel, use_ros: bool = False
+    model: mujoco.MjModel,
+    use_ros: bool = False,
+    command_topic: str = "/joint_commands",
+    state_topic: Optional[str] = "/joint_states",
 ) -> None:
     data = mujoco.MjData(model)
     mujoco.mj_resetData(model, data)
@@ -93,10 +101,11 @@ def run_simulation(
             ros_bridge_mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(ros_bridge_mod)
             RosBridge = ros_bridge_mod.RosBridge
-            ros_bridge = RosBridge()
+            ros_bridge = RosBridge(command_topic, state_topic)
             ros_bridge.start()
             print(
-                "[Simulation] ROS 2 bridge enabled - listening to /joint_states",
+                f"[Simulation] ROS 2 bridge enabled - following {command_topic}"
+                + (f", publishing {state_topic}" if state_topic else ""),
                 flush=True,
             )
         except Exception as e:
@@ -119,6 +128,7 @@ def run_simulation(
         viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 0
         viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = 0
 
+        last_state_publish = 0.0
         while viewer.is_running():
             if use_ros and ros_bridge is not None:
                 ros_positions = ros_bridge.get_joint_positions()
@@ -127,6 +137,15 @@ def run_simulation(
 
             mujoco.mj_step(model, data)
             viewer.sync()
+
+            now = time.monotonic()
+            if ros_bridge is not None and now - last_state_publish >= STATE_PUBLISH_PERIOD:
+                last_state_publish = now
+                names = list(joint_ids)
+                positions = [
+                    float(data.qpos[model.jnt_qposadr[joint_ids[name]]]) for name in names
+                ]
+                ros_bridge.publish_state(names, positions)
 
     if ros_bridge is not None:
         ros_bridge.stop()
@@ -140,14 +159,33 @@ def main() -> None:
         "--ros",
         action="store_true",
         default=True,
-        help="Enable ROS 2 /joint_states subscriber (default: enabled)",
+        help="Enable the ROS 2 bridge (default: enabled)",
+    )
+    parser.add_argument(
+        "--command-topic",
+        default="/joint_commands",
+        help="Topic with target joint positions to follow (default: /joint_commands)",
+    )
+    parser.add_argument(
+        "--state-topic",
+        default="/joint_states",
+        help="Topic to publish the simulated joint state on (default: /joint_states)",
+    )
+    parser.add_argument(
+        "--no-state",
+        action="store_true",
+        help="Do not publish the simulated state, e.g. when a real follower owns the state topic",
     )
 
     args = parser.parse_args()
 
-    use_ros = args.ros
     model = load_model()
-    run_simulation(model, use_ros=use_ros)
+    run_simulation(
+        model,
+        use_ros=args.ros,
+        command_topic=args.command_topic,
+        state_topic=None if args.no_state else args.state_topic,
+    )
 
 
 if __name__ == "__main__":

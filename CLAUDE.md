@@ -27,7 +27,7 @@ Ports exposed by docker-compose: `8888` (JupyterLab), `9090` (rosbridge WebSocke
 
 - **`binder/`** — Docker environment: `Dockerfile` (base image + AI coding tools + rosbridge + dependencies), `docker-compose.yml` (local dev), `entrypoint.sh` (sources ROS 2 setup at container start via `${ROS_PATH}/setup.bash`)
 - **`notebooks/`** — Jupyter notebooks and Python utilities. `utils.py` provides `display_desktop()` for embedding a remote desktop viewer in JupyterLab via Sidecar widget
-- **`bambot/`** — Git submodule (`yxzhan/bambot`). Next.js web app for visualising and controlling the SO-ARM101, including webcam hand-tracking control. Clone with `--recurse-submodules`; update with `git submodule update --remote bambot`
+- **`bambot/`** — Git submodule (`yxzhan/bambot`). Next.js web app for visualising and controlling the SO-ARM101, including webcam hand-tracking and WebXR (VR controller) control. Clone with `--recurse-submodules`; update with `git submodule update --remote bambot`
 - **`mediapipe-samples-web/`** — Git submodule (`google-ai-edge/mediapipe-samples-web`). Reference implementations for the MediaPipe web tasks; `src/tasks/hand-landmarker.ts` is the sample the hand control in `bambot/` is based on
 - **`docs/`** — Supplementary documentation (e.g. `rosbridge.md`)
 - **`requirements.txt`** — Python deps installed at Docker build time
@@ -50,6 +50,11 @@ New apt packages go in step 2 (grouped with rosbridge). New Python packages go i
   ```
 - The conda Python env is separate from system Python. rosbridge's Python deps (`pymongo`, `cbor2`, `ujson`, `tornado`) must be in `requirements.txt` to be available.
 - In notebooks, always guard `rclpy.init()` with `if not rclpy.ok()` to avoid errors on re-run.
+- Teleop topics (both `sensor_msgs/JointState`, radians): the commander (a bambot page in
+  the Commander role) publishes `/joint_commands`; the follower (a bambot page in the
+  Follower role, or the MuJoCo sim in `notebooks/soarm101_mujoco/`) follows them and is
+  the only publisher of `/joint_states`. Run the sim with `--no-state` when a real
+  follower already publishes `/joint_states`.
 
 ## Code Style
 
