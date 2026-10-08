@@ -50,8 +50,8 @@ New apt packages go in step 2 (grouped with rosbridge). New Python packages go i
   ```
 - The conda Python env is separate from system Python. rosbridge's Python deps (`pymongo`, `cbor2`, `ujson`, `tornado`) must be in `requirements.txt` to be available.
 - In notebooks, always guard `rclpy.init()` with `if not rclpy.ok()` to avoid errors on re-run.
-- Teleop topics (both `sensor_msgs/JointState`, radians): the commander (a bambot page in
-  the Commander role) publishes `/joint_commands`; the follower (a bambot page in the
+- Teleop topics (both `sensor_msgs/JointState`, radians): the leader (a bambot page in
+  the Leader role) publishes `/joint_commands`; the follower (a bambot page in the
   Follower role, or the MuJoCo sim in `notebooks/soarm101_mujoco/`) follows them and is
   the only publisher of `/joint_states`. Run the sim with `--no-state` when a real
   follower already publishes `/joint_states`.

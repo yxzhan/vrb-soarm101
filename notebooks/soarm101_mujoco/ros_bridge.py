@@ -1,7 +1,7 @@
 """ROS 2 bridge for SOARM101 Mujoco simulation.
 
 The simulation plays the follower: it takes target joint positions from the
-command topic (``/joint_commands``, published by a bambot commander) and
+command topic (``/joint_commands``, published by a bambot leader) and
 publishes the simulated arm's actual joint positions on the state topic
 (``/joint_states``), the same contract as a bambot page in the follower role.
 """
