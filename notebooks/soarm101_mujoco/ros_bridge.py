@@ -34,7 +34,7 @@ if ROS2_AVAILABLE:
                 JointState,
                 command_topic,
                 self._command_callback,
-                10,
+                1,
             )
             self._state_publisher = (
                 self.create_publisher(JointState, state_topic, 10)
