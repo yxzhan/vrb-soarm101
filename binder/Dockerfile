@@ -1,3 +1,13 @@
+# Build bambot's static site in its own stage, so it is rebuilt only when
+# bambot changes and its node_modules stay out of the final image.
+FROM node:22-slim AS bambot
+RUN npm i -g pnpm@9
+WORKDIR /bambot
+COPY bambot/package.json bambot/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY bambot/ ./
+RUN pnpm build
+
 # Dockerfile of the base image: https://github.com/IntEL4CoRo/jupyter-ros2/blob/main/Dockerfile
 FROM intel4coro/jupyter-ros2:jazzy-py3.12
 
@@ -27,6 +37,10 @@ COPY requirements.txt /tmp/requirements.txt
 RUN pip install -r /tmp/requirements.txt
 
 RUN npm i -g pnpm
+
+# bambot, served by Jupyter at <base url>/bambot/ (binder/jupyter_server_config.py)
+COPY --from=bambot /bambot/out /opt/bambot
+COPY binder/jupyter_server_config.py /usr/local/etc/jupyter/jupyter_server_config.py
 #===========================================================#
 
 # Copy content to the image

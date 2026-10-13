@@ -1,0 +1,9 @@
+# bambot is built inside the image (see binder/Dockerfile); keep the host's
+# dependencies and build output out of the build context.
+bambot/node_modules
+bambot/.next
+bambot/out
+bambot/public/mediapipe
+bambot/tsconfig.tsbuildinfo
+mediapipe-samples-web/node_modules
+rosbag

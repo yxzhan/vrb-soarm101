@@ -19,13 +19,14 @@ docker compose -f ./binder/docker-compose.yml down
 pip install -r requirements.txt
 ```
 
-Access JupyterLab at http://localhost:8888/ after starting.
+Access JupyterLab at http://localhost:8888/ after starting. bambot is served at
+`<jupyter base url>/bambot/` (http://localhost:8888/bambot/ locally; also a launcher tile).
 
 Ports exposed by docker-compose: `8888` (JupyterLab), `9090` (rosbridge WebSocket).
 
 ## Architecture
 
-- **`binder/`** — Docker environment: `Dockerfile` (base image + AI coding tools + rosbridge + dependencies), `docker-compose.yml` (local dev), `entrypoint.sh` (sources ROS 2 setup at container start via `${ROS_PATH}/setup.bash`)
+- **`binder/`** — Docker environment: `Dockerfile` (base image + AI coding tools + rosbridge + dependencies), `docker-compose.yml` (local dev), `entrypoint.sh` (sources ROS 2 setup at container start via `${ROS_PATH}/setup.bash`), `jupyter_server_config.py` (installed to `/usr/local/etc/jupyter/`; serves bambot at `/bambot/` via jupyter-server-proxy)
 - **`notebooks/`** — Jupyter notebooks and Python utilities. `utils.py` provides `display_desktop()` for embedding a remote desktop viewer in JupyterLab via Sidecar widget
 - **`bambot/`** — Git submodule (`yxzhan/bambot`). Next.js web app for visualising and controlling the SO-ARM101, including webcam hand-tracking and WebXR (VR controller) control. Clone with `--recurse-submodules`; update with `git submodule update --remote bambot`
 - **`mediapipe-samples-web/`** — Git submodule (`google-ai-edge/mediapipe-samples-web`). Reference implementations for the MediaPipe web tasks; `src/tasks/hand-landmarker.ts` is the sample the hand control in `bambot/` is based on
@@ -34,6 +35,10 @@ Ports exposed by docker-compose: `8888` (JupyterLab), `9090` (rosbridge WebSocke
 
 ### Dependency layers in the Dockerfile (ordered for cache efficiency)
 
+0. A separate `node:22-slim` stage builds bambot's static site (`pnpm build`, an
+   `output: 'export'` with relative asset paths, so it works under any base url). Only its
+   `out/` is copied into the image, to `/opt/bambot`; it rebuilds only when `bambot/` changes.
+   `.dockerignore` keeps the host's `bambot/node_modules`, `.next` and `out` out of the context.
 1. Heavy, rarely-changing tools: ollama, opencode, claude CLI, code-server extensions
 2. `ros-jazzy-rosbridge-suite` apt package (+ `rm -rf /var/lib/apt/lists/*` in same `RUN`)
 3. `COPY requirements.txt` + `pip install` — invalidated only when deps change
