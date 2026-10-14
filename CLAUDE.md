@@ -59,6 +59,16 @@ New apt packages go in step 2 (grouped with rosbridge). New Python packages go i
   Follower role, or the MuJoCo sim in `notebooks/soarm101_mujoco/`) follows them and is
   the only publisher of `/joint_states`. Run the sim with `--no-state` when a real
   follower already publishes `/joint_states`.
+- Segmentation: `python3 notebooks/soarm101_vision/segment.py --camera <name>` runs an
+  Ultralytics segmentation model (default `yolo11n-seg.pt`, COCO classes; or YOLOE with
+  `--model yoloe-11s-seg.pt --classes "cup, red block"`) on the newest frame of
+  `/<name>/image_raw/compressed` and publishes `/<name>_seg/image_raw/compressed`
+  (overlay JPEG - bambot lists it as another device's camera), `/<name>/segmentation`
+  (`std_msgs/String` JSON: class, score, bbox, centroid, area, outline in pixels) and
+  `/<name>/segmentation/mask/compressed` (PNG labels, 0 = background, i = object id).
+  Weights cache in `~/.cache/soarm101_vision`. torch and ultralytics come with the base
+  image; decode with `cv2.imdecode`, not cv_bridge (built against NumPy 1, the env has
+  NumPy 2).
 
 ## Code Style
 
