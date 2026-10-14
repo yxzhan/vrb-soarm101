@@ -5,5 +5,4 @@ bambot/.next
 bambot/out
 bambot/public/mediapipe
 bambot/tsconfig.tsbuildinfo
-mediapipe-samples-web/node_modules
 rosbag
