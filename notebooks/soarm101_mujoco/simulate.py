@@ -1,15 +1,24 @@
 """SOARM101 Mujoco Simulation.
 
-Uses official SOARM101 Mujoco model (SO101/scene.xml).
+Uses official SOARM101 Mujoco model on a table (SO101/scene.xml).
+With ROS, the scene's cameras (``front`` and ``right``, 256x256) are published as
+JPEG on ``/sim_<camera>/image_raw/compressed``, the topic pattern bambot's camera
+panel and ``soarm101_vision/segment.py`` read.
 """
 
 import argparse
 import importlib.util
+import os
 import sys
 import time
 from pathlib import Path
 from typing import Optional
 
+# Camera images render offscreen through EGL (GPU, no window); the viewer keeps
+# its own GLFW window. Must be set before mujoco is imported.
+os.environ.setdefault("MUJOCO_GL", "egl")
+
+import cv2
 import mujoco
 import mujoco.viewer
 
@@ -38,6 +47,46 @@ HOME_POSITION = {
 
 # How often the simulated joint state is published, seconds (~30 Hz).
 STATE_PUBLISH_PERIOD = 1 / 30
+# How often the camera images are published, seconds (~15 Hz).
+CAMERA_PUBLISH_PERIOD = 1 / 15
+CAMERA_TOPIC = "/sim_{}/image_raw/compressed"
+JPEG_QUALITY = 85
+
+
+class CameraPublisher:
+    """Renders the model's cameras offscreen and publishes them as JPEG.
+
+    Args:
+        model: The model; every camera in it is published, at its
+            ``resolution``.
+        ros_bridge: The running ROS bridge.
+    """
+
+    def __init__(self, model: mujoco.MjModel, ros_bridge) -> None:
+        self._ros_bridge = ros_bridge
+        self._cameras = [model.camera(i).name for i in range(model.ncam)]
+        self._renderers = {}
+        for i, name in enumerate(self._cameras):
+            width, height = (int(v) for v in model.cam_resolution[i])
+            self._renderers[name] = mujoco.Renderer(model, height, width)
+
+    @property
+    def topics(self) -> list:
+        return [CAMERA_TOPIC.format(name) for name in self._cameras]
+
+    def publish(self, data: mujoco.MjData) -> None:
+        for name, renderer in self._renderers.items():
+            renderer.update_scene(data, camera=name)
+            rgb = renderer.render()
+            ok, jpeg = cv2.imencode(
+                ".jpg", rgb[:, :, ::-1], [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY]
+            )
+            if ok:
+                self._ros_bridge.publish_image(CAMERA_TOPIC.format(name), name, jpeg.tobytes())
+
+    def close(self) -> None:
+        for renderer in self._renderers.values():
+            renderer.close()
 
 
 def load_model() -> mujoco.MjModel:
@@ -77,6 +126,7 @@ def run_simulation(
     use_ros: bool = False,
     command_topic: str = "/joint_commands",
     state_topic: Optional[str] = "/joint_states",
+    cameras: bool = True,
 ) -> None:
     data = mujoco.MjData(model)
     mujoco.mj_resetData(model, data)
@@ -118,6 +168,17 @@ def run_simulation(
             )
             use_ros = False
 
+    camera_publisher = None
+    if ros_bridge is not None and cameras and model.ncam:
+        try:
+            camera_publisher = CameraPublisher(model, ros_bridge)
+            print(
+                f"[Simulation] Publishing cameras on {', '.join(camera_publisher.topics)}",
+                flush=True,
+            )
+        except Exception as e:
+            print(f"[Simulation] Cameras off, offscreen rendering failed: {e}", flush=True)
+
     def set_actuator_targets(data: mujoco.MjData, targets: dict) -> None:
         for name, pos in targets.items():
             aid = mujoco.mj_name2id(data.model, mujoco.mjtObj.mjOBJ_ACTUATOR, name)
@@ -129,6 +190,7 @@ def run_simulation(
         viewer.user_scn.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = 0
 
         last_state_publish = 0.0
+        last_camera_publish = 0.0
         while viewer.is_running():
             if use_ros and ros_bridge is not None:
                 ros_positions = ros_bridge.get_joint_positions()
@@ -146,7 +208,12 @@ def run_simulation(
                     float(data.qpos[model.jnt_qposadr[joint_ids[name]]]) for name in names
                 ]
                 ros_bridge.publish_state(names, positions)
+            if camera_publisher is not None and now - last_camera_publish >= CAMERA_PUBLISH_PERIOD:
+                last_camera_publish = now
+                camera_publisher.publish(data)
 
+    if camera_publisher is not None:
+        camera_publisher.close()
     if ros_bridge is not None:
         ros_bridge.stop()
 
@@ -176,6 +243,11 @@ def main() -> None:
         action="store_true",
         help="Do not publish the simulated state, e.g. when a real follower owns the state topic",
     )
+    parser.add_argument(
+        "--no-cameras",
+        action="store_true",
+        help="Do not render and publish the scene's cameras",
+    )
 
     args = parser.parse_args()
 
@@ -185,6 +257,7 @@ def main() -> None:
         use_ros=args.ros,
         command_topic=args.command_topic,
         state_topic=None if args.no_state else args.state_topic,
+        cameras=not args.no_cameras,
     )
 
 

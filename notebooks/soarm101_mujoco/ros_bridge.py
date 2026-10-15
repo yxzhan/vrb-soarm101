@@ -13,7 +13,7 @@ try:
     import rclpy
     import rclpy.executors
     from rclpy.node import Node
-    from sensor_msgs.msg import JointState
+    from sensor_msgs.msg import CompressedImage, JointState
     ROS2_AVAILABLE = True
 except ImportError:
     ROS2_AVAILABLE = False
@@ -41,6 +41,7 @@ if ROS2_AVAILABLE:
                 if state_topic
                 else None
             )
+            self._image_publishers: Dict[str, object] = {}
             self.get_logger().info("SOARM101 Mujoco ROS Bridge started")
             self.get_logger().info(f"Following commands on {command_topic}")
             if state_topic:
@@ -63,6 +64,18 @@ if ROS2_AVAILABLE:
             msg.name = names
             msg.position = positions
             self._state_publisher.publish(msg)
+
+        def publish_image(self, topic: str, frame_id: str, jpeg: bytes) -> None:
+            publisher = self._image_publishers.get(topic)
+            if publisher is None:
+                publisher = self.create_publisher(CompressedImage, topic, 1)
+                self._image_publishers[topic] = publisher
+            msg = CompressedImage()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.frame_id = frame_id
+            msg.format = "jpeg"
+            msg.data = jpeg
+            publisher.publish(msg)
 
 
 class RosBridge:
@@ -110,6 +123,11 @@ class RosBridge:
     def publish_state(self, names: List[str], positions: List[float]) -> None:
         if self._node is not None:
             self._node.publish_state(names, positions)
+
+    def publish_image(self, topic: str, frame_id: str, jpeg: bytes) -> None:
+        """Publishes a JPEG as ``sensor_msgs/CompressedImage`` on ``topic``."""
+        if self._node is not None:
+            self._node.publish_image(topic, frame_id, jpeg)
 
     def stop(self) -> None:
         self._running = False

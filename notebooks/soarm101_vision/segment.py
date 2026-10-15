@@ -15,6 +15,12 @@ an Ultralytics segmentation model on the newest frame, and publishes:
 Frames that arrive while a frame is being processed are dropped, so the
 output never lags behind the camera.
 
+With ``--all-cameras`` it segments every camera on the graph: each
+``/<name>/image_raw/compressed`` topic (except the vision nodes' own ``*_seg``
+and ``*_depth`` outputs), found
+again every few seconds so cameras that come later are picked up too. The
+cameras share one model.
+
 Models: any Ultralytics ``*-seg`` model. The default, YOLO11n-seg, knows the 80
 COCO classes. YOLOE (e.g. ``yoloe-11s-seg.pt``) takes the classes as text with
 ``--classes``, for objects COCO does not cover; its text encoder is a 570 MB
@@ -23,6 +29,7 @@ download on first use. Weights download to ``~/.cache/soarm101_vision``.
 Run (the ROS environment sourced)::
 
     python3 notebooks/soarm101_vision/segment.py --camera camera_1
+    python3 notebooks/soarm101_vision/segment.py --all-cameras
     python3 notebooks/soarm101_vision/segment.py --camera camera_1 \\
         --model yoloe-11s-seg.pt --classes "cup, red block, tape"
 """
@@ -33,7 +40,7 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import cv2
 import numpy as np
@@ -44,11 +51,16 @@ from rclpy.utilities import remove_ros_args
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import String
 
+from camera_topics import discover_cameras
+
 WEIGHTS_DIR = Path.home() / ".cache" / "soarm101_vision"
 JPEG_QUALITY = 85
 # Outline simplification tolerance, px: keeps the JSON small without
 # visibly changing the shape.
 POLYGON_EPSILON_PX = 1.5
+# Suffix of the overlay camera this node publishes (see camera_topics).
+OVERLAY_SUFFIX = "_seg"
+DISCOVERY_PERIOD_S = 3.0
 
 
 def load_model(name: str, classes: List[str]):
@@ -78,24 +90,49 @@ def load_model(name: str, classes: List[str]):
     return model
 
 
+class CameraStream:
+    """One camera's input subscription, newest unprocessed frame and outputs."""
+
+    def __init__(self, node: Node, camera: str, input_topic: str) -> None:
+        self.camera = camera
+        self.input_topic = input_topic
+        self.latest: Optional[CompressedImage] = None
+        self.subscription = node.create_subscription(
+            CompressedImage, input_topic, self._on_image, qos_profile_sensor_data
+        )
+        self.overlay_pub = node.create_publisher(
+            CompressedImage, f"/{camera}{OVERLAY_SUFFIX}/image_raw/compressed", 1
+        )
+        self.objects_pub = node.create_publisher(String, f"/{camera}/segmentation", 10)
+        self.mask_pub = node.create_publisher(
+            CompressedImage, f"/{camera}/segmentation/mask/compressed", 1
+        )
+
+    def _on_image(self, msg: CompressedImage) -> None:
+        # Only the newest frame matters; an older unprocessed one is dropped.
+        self.latest = msg
+
+
 class SegmentationNode(Node):
-    """Segments the newest frame of a camera topic and publishes the results.
+    """Segments the newest frame of camera topics and publishes the results.
 
     Args:
-        camera: Camera name; topics are derived from it.
+        cameras: Camera names; topics are derived from them.
         model: A loaded Ultralytics segmentation model.
-        input_topic: Overrides ``/<camera>/image_raw/compressed``.
+        input_topic: Overrides ``/<camera>/image_raw/compressed`` (one camera only).
+        all_cameras: Also segment every camera topic found on the graph.
         confidence: Detections below this score are dropped.
         image_size: Inference size, px (the long side).
         device: Torch device, e.g. ``"0"`` or ``"cpu"``.
-        max_hz: Most frames processed per second.
+        max_hz: Most frames processed per second, per camera.
     """
 
     def __init__(
         self,
-        camera: str,
+        cameras: List[str],
         model,
         input_topic: Optional[str],
+        all_cameras: bool,
         confidence: float,
         image_size: int,
         device: str,
@@ -106,53 +143,58 @@ class SegmentationNode(Node):
         self._confidence = confidence
         self._image_size = image_size
         self._device = device
-        self._latest: Optional[CompressedImage] = None
+        self._streams: Dict[str, CameraStream] = {}
         self._frames = 0
         self._busy_s = 0.0
 
-        input_topic = input_topic or f"/{camera}/image_raw/compressed"
-        self.create_subscription(
-            CompressedImage, input_topic, self._on_image, qos_profile_sensor_data
-        )
-        self._overlay_pub = self.create_publisher(
-            CompressedImage, f"/{camera}_seg/image_raw/compressed", 1
-        )
-        self._objects_pub = self.create_publisher(String, f"/{camera}/segmentation", 10)
-        self._mask_pub = self.create_publisher(
-            CompressedImage, f"/{camera}/segmentation/mask/compressed", 1
-        )
-        self.create_timer(1.0 / max_hz, self._process_latest)
-        self.create_timer(10.0, self._report)
         self.get_logger().info(
-            f"Segmenting {input_topic} with {Path(model.ckpt_path or 'model').name} "
+            f"Model {Path(model.ckpt_path or 'model').name} "
             f"({len(model.names)} classes) on device {device}"
         )
+        for camera in cameras:
+            self._add_camera(camera, input_topic or f"/{camera}/image_raw/compressed")
+        if all_cameras:
+            self._discover()
+            self.create_timer(DISCOVERY_PERIOD_S, self._discover)
+        self.create_timer(1.0 / max_hz, self._process_latest)
+        self.create_timer(10.0, self._report)
 
-    def _on_image(self, msg: CompressedImage) -> None:
-        # Only the newest frame matters; an older unprocessed one is dropped.
-        self._latest = msg
+    def _add_camera(self, camera: str, input_topic: str) -> None:
+        if camera in self._streams:
+            return
+        self._streams[camera] = CameraStream(self, camera, input_topic)
+        self.get_logger().info(f"Segmenting {input_topic}")
+
+    def _discover(self) -> None:
+        for camera in discover_cameras(self):
+            self._add_camera(camera, f"/{camera}/image_raw/compressed")
 
     def _process_latest(self) -> None:
-        msg, self._latest = self._latest, None
-        if msg is None:
-            return
-        frame = cv2.imdecode(np.frombuffer(msg.data, np.uint8), cv2.IMREAD_COLOR)
-        if frame is None:
-            self.get_logger().warning(f"Could not decode a '{msg.format}' frame")
-            return
-        started = time.perf_counter()
-        result = self._model.predict(
-            frame,
-            conf=self._confidence,
-            imgsz=self._image_size,
-            device=self._device,
-            verbose=False,
-        )[0]
-        self._publish(msg, frame, result)
-        self._busy_s += time.perf_counter() - started
-        self._frames += 1
+        for stream in self._streams.values():
+            msg, stream.latest = stream.latest, None
+            if msg is None:
+                continue
+            frame = cv2.imdecode(np.frombuffer(msg.data, np.uint8), cv2.IMREAD_COLOR)
+            if frame is None:
+                self.get_logger().warning(
+                    f"Could not decode a '{msg.format}' frame from {stream.input_topic}"
+                )
+                continue
+            started = time.perf_counter()
+            result = self._model.predict(
+                frame,
+                conf=self._confidence,
+                imgsz=self._image_size,
+                device=self._device,
+                verbose=False,
+            )[0]
+            self._publish(stream, msg, frame, result)
+            self._busy_s += time.perf_counter() - started
+            self._frames += 1
 
-    def _publish(self, msg: CompressedImage, frame: np.ndarray, result) -> None:
+    def _publish(
+        self, stream: CameraStream, msg: CompressedImage, frame: np.ndarray, result
+    ) -> None:
         height, width = frame.shape[:2]
         objects = []
         outlines = []
@@ -197,11 +239,11 @@ class SegmentationNode(Node):
             "height": height,
             "objects": objects,
         }
-        self._objects_pub.publish(String(data=json.dumps(report)))
+        stream.objects_pub.publish(String(data=json.dumps(report)))
 
         overlay = result.plot(img=frame.copy(), conf=True, boxes=True, masks=True)
-        self._overlay_pub.publish(self._compressed(msg, "jpeg", overlay))
-        self._mask_pub.publish(self._compressed(msg, "png", labels))
+        stream.overlay_pub.publish(self._compressed(msg, "jpeg", overlay))
+        stream.mask_pub.publish(self._compressed(msg, "png", labels))
 
     @staticmethod
     def _compressed(source: CompressedImage, kind: str, image: np.ndarray) -> CompressedImage:
@@ -216,7 +258,7 @@ class SegmentationNode(Node):
     def _report(self) -> None:
         if self._frames:
             self.get_logger().info(
-                f"{self._frames / 10.0:.1f} frames/s, "
+                f"{self._frames / 10.0:.1f} frames/s over {len(self._streams)} camera(s), "
                 f"{1000.0 * self._busy_s / self._frames:.0f} ms each"
             )
         self._frames, self._busy_s = 0, 0.0
@@ -232,14 +274,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Instance segmentation of a ROS camera stream")
     parser.add_argument(
         "--camera",
-        default="camera_1",
-        help="Camera name: reads /<camera>/image_raw/compressed (default: camera_1)",
+        action="append",
+        help="Camera name: reads /<camera>/image_raw/compressed; repeat for more cameras "
+        "(default: camera_1, or none with --all-cameras)",
+    )
+    parser.add_argument(
+        "--all-cameras",
+        action="store_true",
+        help="Segment every /<name>/image_raw/compressed camera, including ones that start later",
     )
     parser.add_argument("--topic", help="Input topic, overriding the one --camera gives")
     parser.add_argument(
         "--model",
-        default="yolo11n-seg.pt",
-        help="Ultralytics segmentation weights (default: yolo11n-seg.pt, COCO classes)",
+        default="yolo26x-seg.pt",
+        help="Ultralytics segmentation weights (default: yolo26s-seg.pt, COCO classes)",
     )
     parser.add_argument(
         "--classes",
@@ -250,19 +298,26 @@ def main() -> None:
     parser.add_argument("--imgsz", type=int, default=640, help="Inference size, px (default: 640)")
     parser.add_argument("--device", help="Torch device (default: GPU 0 if available, else cpu)")
     parser.add_argument(
-        "--max-hz", type=float, default=10.0, help="Most frames processed per second (default: 10)"
+        "--max-hz",
+        type=float,
+        default=20.0,
+        help="Most frames processed per second, per camera (default: 10)",
     )
     # ROS arguments (--ros-args ...) go to rclpy; anything else must be ours.
     args = parser.parse_args(remove_ros_args(sys.argv)[1:])
+    cameras = args.camera or ([] if args.all_cameras else ["camera_1"])
+    if args.topic and (len(cameras) != 1 or args.all_cameras):
+        parser.error("--topic needs exactly one --camera and no --all-cameras")
 
     classes = [c.strip() for c in args.classes.split(",") if c.strip()]
     model = load_model(args.model, classes)
 
     rclpy.init(args=sys.argv)
     node = SegmentationNode(
-        camera=args.camera,
+        cameras=cameras,
         model=model,
         input_topic=args.topic,
+        all_cameras=args.all_cameras,
         confidence=args.conf,
         image_size=args.imgsz,
         device=args.device or default_device(),

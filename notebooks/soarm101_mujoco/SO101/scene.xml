@@ -1,10 +1,15 @@
 <mujoco model="scene">
     <include file="so101_new_calib.xml" />
 
+    <!-- The arm (base at the origin, x forward, z up) on the back edge of a white table,
+         with bambot's printed table calibration sheets on it. -->
+    <compiler texturedir="assets" />
+
     <visual>
-        <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0" />
+        <headlight diffuse="0.5 0.5 0.5" ambient="0.3 0.3 0.3" specular="0 0 0" />
         <rgba haze="0.15 0.25 0.35 1" />
-        <global azimuth="160" elevation="-20" />
+        <global azimuth="160" elevation="-25" offwidth="1280" offheight="960" />
+        <quality shadowsize="4096" />
     </visual>
 
     <asset>
@@ -15,10 +20,55 @@
             markrgb="0.8 0.8 0.8" width="300" height="300" />
         <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5"
             reflectance="0.2" />
+        <material name="table" rgba="0.93 0.93 0.91 1" specular="0.2" shininess="0.3" />
+        <material name="table_leg" rgba="0.8 0.8 0.8 1" />
+        <!-- One A4 sheet, 297 mm along x by 210 mm along y; the page's top is +x and its
+             left +y, as printed and laid out by bambot (public/calibration). -->
+        <mesh name="calibration_sheet" inertia="shell"
+            vertex="0.1485 0.105 0  -0.1485 0.105 0  -0.1485 -0.105 0  0.1485 -0.105 0"
+            texcoord="0 0  0 1  1 1  1 0" face="0 1 2  0 2 3" />
+        <texture name="sheet_main" type="2d" file="calibration/sheet_main.png" />
+        <material name="sheet_main" texture="sheet_main" specular="0" />
+        <texture name="sheet_front" type="2d" file="calibration/sheet_front.png" />
+        <material name="sheet_front" texture="sheet_front" specular="0" />
+        <texture name="sheet_left" type="2d" file="calibration/sheet_left.png" />
+        <material name="sheet_left" texture="sheet_left" specular="0" />
+        <texture name="sheet_right" type="2d" file="calibration/sheet_right.png" />
+        <material name="sheet_right" texture="sheet_right" specular="0" />
+        <texture name="sheet_front_left" type="2d" file="calibration/sheet_front_left.png" />
+        <material name="sheet_front_left" texture="sheet_front_left" specular="0" />
+        <texture name="sheet_front_right" type="2d" file="calibration/sheet_front_right.png" />
+        <material name="sheet_front_right" texture="sheet_front_right" specular="0" />
     </asset>
 
     <worldbody>
-        <light pos="0 0 3.5" dir="0 0 -1" directional="true" />
-        <geom name="floor" size="0 0 0.05" pos="0 0 0" type="plane" material="groundplane" />
+        <light pos="0 0 3.5" dir="0 0 -1" directional="true" diffuse="0.4 0.4 0.4" castshadow="false" />
+        <light pos="0.4 0.3 1.6" dir="-0.15 -0.15 -1" diffuse="0.5 0.5 0.5" castshadow="true" />
+        <geom name="floor" size="0 0 0.05" pos="0 0 -0.75" type="plane" material="groundplane" />
+        <!-- White table, top surface at z = -2.4 mm (the base's underside, bambot's table_z_mm):
+             the arm stands on its back edge. -->
+        <body name="table" pos="0.3 0 -0.0024">
+            <geom name="table_top" type="box" size="0.35 0.6 0.015" pos="0 0 -0.015" material="table" />
+            <geom type="box" size="0.02 0.02 0.36" pos="0.31 0.56 -0.39" material="table_leg" />
+            <geom type="box" size="0.02 0.02 0.36" pos="0.31 -0.56 -0.39" material="table_leg" />
+            <geom type="box" size="0.02 0.02 0.36" pos="-0.31 0.56 -0.39" material="table_leg" />
+            <geom type="box" size="0.02 0.02 0.36" pos="-0.31 -0.56 -0.39" material="table_leg" />
+        </body>
+        <!-- bambot's calibration sheets (public/calibration/table_calibration_a4.json), on the
+             table top; textures: assets/calibration/README.md. -->
+        <geom name="sheet_main" type="mesh" mesh="calibration_sheet" material="sheet_main"
+            pos="0.12614 0.00000 -0.0023" contype="0" conaffinity="0" />
+        <geom name="sheet_front" type="mesh" mesh="calibration_sheet" material="sheet_front"
+            pos="0.42314 0.00000 -0.0023" contype="0" conaffinity="0" />
+        <geom name="sheet_left" type="mesh" mesh="calibration_sheet" material="sheet_left"
+            pos="0.12614 0.21000 -0.0023" contype="0" conaffinity="0" />
+        <geom name="sheet_right" type="mesh" mesh="calibration_sheet" material="sheet_right"
+            pos="0.12614 -0.21000 -0.0023" contype="0" conaffinity="0" />
+        <geom name="sheet_front_left" type="mesh" mesh="calibration_sheet" material="sheet_front_left"
+            pos="0.42314 0.21000 -0.0023" contype="0" conaffinity="0" />
+        <geom name="sheet_front_right" type="mesh" mesh="calibration_sheet" material="sheet_front_right"
+            pos="0.42314 -0.21000 -0.0023" contype="0" conaffinity="0" />
+        <camera name="front" pos="0.55 0 0.72" xyaxes="0 1 -0 -0.869 0 0.4948" fovy="50" resolution="256 256" />
+        <camera name="right" pos="0.16 -0.52 0.4" xyaxes="1 -0 0 0 0.5952 0.8036" fovy="55" resolution="256 256" />
     </worldbody>
 </mujoco>

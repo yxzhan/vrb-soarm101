@@ -59,7 +59,17 @@ New apt packages go in step 2 (grouped with rosbridge). New Python packages go i
   Follower role, or the MuJoCo sim in `notebooks/soarm101_mujoco/`) follows them and is
   the only publisher of `/joint_states`. Run the sim with `--no-state` when a real
   follower already publishes `/joint_states`.
-- Segmentation: `python3 notebooks/soarm101_vision/segment.py --camera <name>` runs an
+- MuJoCo sim scene (`notebooks/soarm101_mujoco/SO101/scene.xml`): the arm (base at the
+  world origin = base_link) on the back edge of a white table whose top is z = -2.4 mm
+  (the base's underside, bambot's `table_z_mm`), with bambot's table calibration sheets
+  laid on it as in bambot's JSON (textures: `SO101/assets/calibration/`). Its cameras
+  `front` (in front, looking down) and `right` (256x256) render offscreen through EGL
+  and publish JPEG on `/sim_front/image_raw/compressed` and
+  `/sim_right/image_raw/compressed` (~15 Hz; `--no-cameras` turns them off), so bambot
+  and `segment.py --camera sim_front` can use them.
+- Segmentation: `python3 notebooks/soarm101_vision/segment.py --camera <name>` (repeatable;
+  or `--all-cameras`: every `/<name>/image_raw/compressed` publisher except its own
+  `*_seg` outputs, re-scanned every 3 s, all sharing one model) runs an
   Ultralytics segmentation model (default `yolo11n-seg.pt`, COCO classes; or YOLOE with
   `--model yoloe-11s-seg.pt --classes "cup, red block"`) on the newest frame of
   `/<name>/image_raw/compressed` and publishes `/<name>_seg/image_raw/compressed`
@@ -69,6 +79,12 @@ New apt packages go in step 2 (grouped with rosbridge). New Python packages go i
   Weights cache in `~/.cache/soarm101_vision`. torch and ultralytics come with the base
   image; decode with `cv2.imdecode`, not cv_bridge (built against NumPy 1, the env has
   NumPy 2).
+- Depth: `python3 notebooks/soarm101_vision/depth.py --camera <name>` (or `--all-cameras`;
+  discovery shared with segment.py in `camera_topics.py`) runs a YOLO26 monocular depth
+  model (default `yolo26s-depth.pt`, needs ultralytics >= 8.4.177) and publishes
+  `/<name>_depth/image_raw/compressed` (coloured JPEG, near = warm; bambot lists it as a
+  camera) and `/<name>/depth/compressed` (16-bit PNG, millimetres). Metric, but the
+  absolute scale is a guess: 0.6-1.7x off on the sim cameras, ~3-12% error once scaled.
 
 ## Code Style
 
