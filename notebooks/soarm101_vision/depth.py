@@ -18,7 +18,7 @@ was trained on (relative depth within a frame is much better).
 Frames that arrive while a frame is being processed are dropped, so the
 output never lags behind the camera. With ``--all-cameras`` every camera on
 the graph is used (except the vision nodes' own ``*_seg`` and ``*_depth``
-outputs), found again every few seconds.
+outputs), found again every second.
 
 Models: ``yolo26{n,s,m,l,x}-depth.pt`` (needs ultralytics >= 8.4.177); weights
 download to ``~/.cache/soarm101_vision``.
@@ -49,7 +49,9 @@ from camera_topics import discover_cameras
 WEIGHTS_DIR = Path.home() / ".cache" / "soarm101_vision"
 JPEG_QUALITY = 85
 COLOR_SUFFIX = "_depth"
-DISCOVERY_PERIOD_S = 3.0
+# Cameras are looked for this often; the first look, right at start, usually
+# finds nothing yet - the ROS graph takes a moment to discover.
+DISCOVERY_PERIOD_S = 1.0
 # Largest depth the 16-bit millimetre PNG holds, metres.
 MAX_DEPTH_M = 65.535
 
@@ -261,6 +263,9 @@ def main() -> None:
     if args.topic and (len(cameras) != 1 or args.all_cameras):
         parser.error("--topic needs exactly one --camera and no --all-cameras")
 
+    # Loading can take a while (a download on first use; YOLOE's text encoder)
+    # before ROS logs anything.
+    print(f"Loading {args.model}...", flush=True)
     model = load_model(args.model)
 
     rclpy.init(args=sys.argv)

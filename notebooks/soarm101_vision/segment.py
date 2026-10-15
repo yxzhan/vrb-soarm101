@@ -18,7 +18,7 @@ output never lags behind the camera.
 With ``--all-cameras`` it segments every camera on the graph: each
 ``/<name>/image_raw/compressed`` topic (except the vision nodes' own ``*_seg``
 and ``*_depth`` outputs), found
-again every few seconds so cameras that come later are picked up too. The
+again every second so cameras that come later are picked up too. The
 cameras share one model.
 
 Models: any Ultralytics ``*-seg`` model. The default, YOLO11n-seg, knows the 80
@@ -60,7 +60,9 @@ JPEG_QUALITY = 85
 POLYGON_EPSILON_PX = 1.5
 # Suffix of the overlay camera this node publishes (see camera_topics).
 OVERLAY_SUFFIX = "_seg"
-DISCOVERY_PERIOD_S = 3.0
+# Cameras are looked for this often; the first look, right at start, usually
+# finds nothing yet - the ROS graph takes a moment to discover.
+DISCOVERY_PERIOD_S = 1.0
 
 
 def load_model(name: str, classes: List[str]):
@@ -310,6 +312,9 @@ def main() -> None:
         parser.error("--topic needs exactly one --camera and no --all-cameras")
 
     classes = [c.strip() for c in args.classes.split(",") if c.strip()]
+    # Loading can take a while (a download on first use; YOLOE's text encoder)
+    # before ROS logs anything.
+    print(f"Loading {args.model}...", flush=True)
     model = load_model(args.model, classes)
 
     rclpy.init(args=sys.argv)

@@ -69,7 +69,7 @@ New apt packages go in step 2 (grouped with rosbridge). New Python packages go i
   and `segment.py --camera sim_front` can use them.
 - Segmentation: `python3 notebooks/soarm101_vision/segment.py --camera <name>` (repeatable;
   or `--all-cameras`: every `/<name>/image_raw/compressed` publisher except its own
-  `*_seg` outputs, re-scanned every 3 s, all sharing one model) runs an
+  `*_seg` outputs, re-scanned every second, all sharing one model) runs an
   Ultralytics segmentation model (default `yolo11n-seg.pt`, COCO classes; or YOLOE with
   `--model yoloe-11s-seg.pt --classes "cup, red block"`) on the newest frame of
   `/<name>/image_raw/compressed` and publishes `/<name>_seg/image_raw/compressed`
