@@ -1,5 +1,9 @@
 <mujoco model="scene">
-    <include file="so101_new_calib.xml" />
+    <!-- The arm: MuJoCo Menagerie's robotstudio_so101 (so101.xml, assets/*.stl; Apache 2.0,
+         LICENSE), copied unchanged from google-deepmind/mujoco_menagerie@62ab00f. -->
+    <include file="so101.xml" />
+    <!-- Kitchen objects from RoboCasa on the table (import_robocasa_objects.py). -->
+    <include file="objects.xml" />
 
     <!-- The arm (base at the origin, x forward, z up) on the back edge of a white table,
          with bambot's printed table calibration sheets on it. -->
@@ -68,7 +72,7 @@
             pos="0.42314 0.21000 -0.0023" contype="0" conaffinity="0" />
         <geom name="sheet_front_right" type="mesh" mesh="calibration_sheet" material="sheet_front_right"
             pos="0.42314 -0.21000 -0.0023" contype="0" conaffinity="0" />
-        <camera name="front" pos="0.55 0 0.72" xyaxes="0 1 -0 -0.869 0 0.4948" fovy="50" resolution="256 256" />
-        <camera name="right" pos="0.16 -0.52 0.4" xyaxes="1 -0 0 0 0.5952 0.8036" fovy="55" resolution="256 256" />
+        <camera name="front" pos="0.55 0 0.72" xyaxes="0 1 -0 -0.869 0 0.4948" fovy="50" resolution="640 480" />
+        <camera name="right" pos="0.16 -0.52 0.4" xyaxes="1 -0 0 0 0.5952 0.8036" fovy="55" resolution="640 480" />
     </worldbody>
 </mujoco>

@@ -1,7 +1,7 @@
 """SOARM101 Mujoco Simulation.
 
-Uses official SOARM101 Mujoco model on a table (SO101/scene.xml).
-With ROS, the scene's cameras (``front`` and ``right``, 256x256) are published as
+Uses MuJoCo Menagerie's SO101 model on a table (SO101/scene.xml).
+With ROS, the scene's cameras (``front`` and ``right``, 640x480) are published as
 JPEG on ``/sim_<camera>/image_raw/compressed``, the topic pattern bambot's camera
 panel and ``soarm101_vision/segment.py`` read.
 """
@@ -49,6 +49,14 @@ HOME_POSITION = {
 STATE_PUBLISH_PERIOD = 1 / 30
 # How often the camera images are published, seconds (~15 Hz).
 CAMERA_PUBLISH_PERIOD = 1 / 15
+# How often the viewer is synced, seconds (~60 Hz). Physics steps in between to keep
+# up with the wall clock: syncing every step would tie the sim's speed to the
+# viewer's rendering (software OpenGL over VNC: several ms a frame, a fraction of
+# real time).
+VIEWER_SYNC_PERIOD = 1 / 60
+# Most physics steps per loop when behind (e.g. after a stall): the sim slows down
+# rather than spending ever longer catching up.
+MAX_STEPS_PER_LOOP = 100
 CAMERA_TOPIC = "/sim_{}/image_raw/compressed"
 JPEG_QUALITY = 85
 
@@ -57,18 +65,19 @@ class CameraPublisher:
     """Renders the model's cameras offscreen and publishes them as JPEG.
 
     Args:
-        model: The model; every camera in it is published, at its
-            ``resolution``.
+        model: The model; every camera in it given a ``resolution`` is
+            published, at that resolution (the arm's ``wrist_cam`` has none).
         ros_bridge: The running ROS bridge.
     """
 
     def __init__(self, model: mujoco.MjModel, ros_bridge) -> None:
         self._ros_bridge = ros_bridge
-        self._cameras = [model.camera(i).name for i in range(model.ncam)]
         self._renderers = {}
-        for i, name in enumerate(self._cameras):
+        for i in range(model.ncam):
             width, height = (int(v) for v in model.cam_resolution[i])
-            self._renderers[name] = mujoco.Renderer(model, height, width)
+            if width > 1 and height > 1:
+                self._renderers[model.camera(i).name] = mujoco.Renderer(model, height, width)
+        self._cameras = list(self._renderers)
 
     @property
     def topics(self) -> list:
@@ -124,7 +133,7 @@ def set_joint_positions(data: mujoco.MjData, joint_pos: dict) -> None:
 def run_simulation(
     model: mujoco.MjModel,
     use_ros: bool = False,
-    command_topic: str = "/joint_commands",
+    command_topic: str = "/joint_command",
     state_topic: Optional[str] = "/joint_states",
     cameras: bool = True,
 ) -> None:
@@ -191,14 +200,26 @@ def run_simulation(
 
         last_state_publish = 0.0
         last_camera_publish = 0.0
+        # Wall clock time at which the sim's time was 0.
+        wall_start = time.monotonic() - data.time
         while viewer.is_running():
             if use_ros and ros_bridge is not None:
                 ros_positions = ros_bridge.get_joint_positions()
                 if ros_positions:
                     set_actuator_targets(data, ros_positions)
 
-            mujoco.mj_step(model, data)
+            # Step until the sim's time catches up with the wall clock.
+            target = time.monotonic() - wall_start + VIEWER_SYNC_PERIOD
+            steps = 0
+            while data.time < target and steps < MAX_STEPS_PER_LOOP:
+                mujoco.mj_step(model, data)
+                steps += 1
+            if steps == MAX_STEPS_PER_LOOP:
+                wall_start = time.monotonic() - data.time  # fell behind: slow down
             viewer.sync()
+            ahead = data.time - (time.monotonic() - wall_start)
+            if ahead > 0:
+                time.sleep(ahead)
 
             now = time.monotonic()
             if ros_bridge is not None and now - last_state_publish >= STATE_PUBLISH_PERIOD:
@@ -230,8 +251,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--command-topic",
-        default="/joint_commands",
-        help="Topic with target joint positions to follow (default: /joint_commands)",
+        default="/joint_command",
+        help="Topic with target joint positions to follow (default: /joint_command)",
     )
     parser.add_argument(
         "--state-topic",

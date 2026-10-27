@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 rosbag**
+notebooks/soarm101_mujoco/SO101/assets/objects/
 
 node_modules/
 .pnpm-store/

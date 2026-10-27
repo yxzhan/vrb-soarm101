@@ -38,7 +38,7 @@ Record panel ──/record/control──▶ recorder node ──▶ one MCAP bag
 - [ ] `/record/status` (`std_msgs/String`, JSON), 1 Hz + on change: state, episode index, elapsed, per-topic Hz
 - [ ] On start: new MCAP bag `episodes/<index>/` + `meta.json` (task); ignore start while recording (report in status)
 - [ ] Subscribe with `raw=True`, write with `rosbag2_py.SequentialWriter` stamped with **receive time**
-- [ ] Topics: `/joint_commands` (action), `/joint_states` (observation.state), `/*/image_raw/compressed` (observation.images.*)
+- [ ] Topics: `/joint_command` (action), `/joint_states` (observation.state), `/*/image_raw/compressed` (observation.images.*)
 - [ ] Test with a private `ROS_DOMAIN_ID` and a port other than 9090
 
 ### Convert script (bag → LeRobot)
@@ -52,6 +52,6 @@ Record panel ──/record/control──▶ recorder node ──▶ one MCAP bag
 - [ ] Keep the in-browser record/replay as the offline (no ROS) feature, separate from collection
 
 ### Open questions
-- [ ] Direct leader mode doesn't publish `/joint_commands` → require ROS mode for collection, or have the follower also publish the commands it applies
+- [ ] Direct leader mode doesn't publish `/joint_command` → require ROS mode for collection, or have the follower also publish the commands it applies
 - [ ] `/joint_states` is the commanded value, not servo readback → read Present Position (addr 56) periodically and publish that; check serial bandwidth
 - [ ] Header stamps are browser `Date.now()` (`bambot/hooks/useROS2.ts` `rosNow()`), skewed per device → fine for recording (receive time is used); for correct `header.stamp` add a clock offset from `/rosapi/get_time` at connect

@@ -288,7 +288,7 @@ def main() -> None:
     parser.add_argument("--topic", help="Input topic, overriding the one --camera gives")
     parser.add_argument(
         "--model",
-        default="yolo26x-seg.pt",
+        default="yolo26s-seg.pt",
         help="Ultralytics segmentation weights (default: yolo26s-seg.pt, COCO classes)",
     )
     parser.add_argument(

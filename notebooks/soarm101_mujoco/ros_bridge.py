@@ -1,7 +1,7 @@
 """ROS 2 bridge for SOARM101 Mujoco simulation.
 
 The simulation plays the follower: it takes target joint positions from the
-command topic (``/joint_commands``, published by a bambot leader) and
+command topic (``/joint_command``, published by a bambot leader) and
 publishes the simulated arm's actual joint positions on the state topic
 (``/joint_states``), the same contract as a bambot page in the follower role.
 """
@@ -20,7 +20,7 @@ except ImportError:
     print("[ROS Bridge] rclpy not available - ROS control disabled")
 
 
-DEFAULT_COMMAND_TOPIC = "/joint_commands"
+DEFAULT_COMMAND_TOPIC = "/joint_command"
 DEFAULT_STATE_TOPIC = "/joint_states"
 
 
